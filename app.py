@@ -17,8 +17,16 @@ matplotlib.use("Agg")
 
 app = Flask(__name__)
 
+from routes.invoices import invoices_bp
+from routes.stats import stats_bp
+
 # Create tables at startup
 create_tables()
+
+# Register blueprint
+app.register_blueprint(invoices_bp)
+app.register_blueprint(stats_bp)
+
 
 model_path = "models/saved_model"
 model = tf.saved_model.load(model_path)
@@ -122,82 +130,6 @@ def predict():
 
     except Exception as e:
         return jsonify({"error": f"Failed to process image: {str(e)}"}), 500
-
-
-@app.route("/invoices", methods=["GET"])
-def get_invoices():
-    """
-    Récupère la liste des factures enregistrées dans la base de données
-    """
-    db = next(get_db())
-    try:
-        invoices = db.query(Invoice).all()
-        result = []
-        for invoice in invoices:
-            result.append(
-                {
-                    "id": invoice.id,
-                    "company_name": invoice.company_name,
-                    "invoice_number": invoice.invoice_number,
-                    "invoice_date": invoice.invoice_date,
-                    "total_amount": invoice.total_amount,
-                    "created_at": (
-                        invoice.created_at.isoformat() if invoice.created_at else None
-                    ),
-                }
-            )
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": f"Failed to retrieve invoices: {str(e)}"}), 500
-    finally:
-        db.close()
-
-
-@app.route("/invoices/<int:invoice_id>", methods=["GET"])
-def get_invoice(invoice_id):
-    """
-    Récupère les détails d'une facture spécifique
-    """
-    db = next(get_db())
-    try:
-        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-        if not invoice:
-            return jsonify({"error": "Invoice not found"}), 404
-
-        items = db.query(InvoiceItem).filter(InvoiceItem.invoice_id == invoice_id).all()
-        items_data = []
-        for item in items:
-            items_data.append(
-                {
-                    "id": item.id,
-                    "description": item.description,
-                    "quantity": item.quantity,
-                    "unit_price": item.unit_price,
-                    "amount": item.amount,
-                }
-            )
-
-        result = {
-            "id": invoice.id,
-            "company_name": invoice.company_name,
-            "company_address": invoice.company_address,
-            "customer_name": invoice.customer_name,
-            "customer_address": invoice.customer_address,
-            "invoice_number": invoice.invoice_number,
-            "invoice_date": invoice.invoice_date,
-            "due_date": invoice.due_date,
-            "total_amount": invoice.total_amount,
-            "taxes": invoice.taxes,
-            "created_at": (
-                invoice.created_at.isoformat() if invoice.created_at else None
-            ),
-            "items": items_data,
-        }
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": f"Failed to retrieve invoice: {str(e)}"}), 500
-    finally:
-        db.close()
 
 
 if __name__ == "__main__":
