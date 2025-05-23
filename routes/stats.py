@@ -6,14 +6,50 @@ from database import get_db, Invoice
 stats_bp = Blueprint("stats", __name__)
 
 
-@stats_bp.route("/stats/total-invoices", methods=["GET"])
-def get_total_invoices():
+@stats_bp.route("/stats/summary", methods=["GET"])
+def get_invoice_summary():
     db = next(get_db())
     try:
-        count = db.query(func.count(Invoice.id)).scalar()
-        return jsonify({"total_invoices": count})
+        # Total number of invoices
+        total_invoices = db.query(func.count(Invoice.id)).scalar() or 0
+
+        # Total revenue (sum of total_amount)
+        total_revenue = db.query(func.sum(Invoice.total_amount)).scalar() or 0.0
+
+        # Find customer with most invoices
+        top_customer = (
+            db.query(
+                Invoice.customer_name, func.count(Invoice.id).label("invoice_count")
+            )
+            .group_by(Invoice.customer_name)
+            .order_by(func.count(Invoice.id).desc())
+            .first()
+        )
+
+        if top_customer and total_invoices > 0:
+            top_customer_name = top_customer[0] or "Unknown"
+            top_customer_invoice_count = top_customer[1]
+            top_customer_percentage = round(
+                (top_customer_invoice_count / total_invoices) * 100, 2
+            )
+        else:
+            top_customer_name = None
+            top_customer_invoice_count = 0
+            top_customer_percentage = 0.0
+
+        return jsonify(
+            {
+                "total_invoices": total_invoices,
+                "total_revenue": total_revenue,
+                "top_customer": {
+                    "name": top_customer_name,
+                    "invoice_count": top_customer_invoice_count,
+                    "percentage_of_total": top_customer_percentage,
+                },
+            }
+        )
     except Exception as e:
-        return jsonify({"error": f"Failed to fetch invoice count: {str(e)}"}), 500
+        return jsonify({"error": f"Failed to fetch invoice summary: {str(e)}"}), 500
     finally:
         db.close()
 
