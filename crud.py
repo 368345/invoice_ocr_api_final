@@ -1,6 +1,7 @@
 # crud.py
 from database import Invoice, InvoiceItem, get_db
 from sqlalchemy.orm import Session
+from utils.ocr_utils import safe_parse_float
 
 
 def save_invoice_to_db(invoice_data: dict, raw_text: str, raw_json: str) -> int | None:
@@ -15,16 +16,8 @@ def save_invoice_to_db(invoice_data: dict, raw_text: str, raw_json: str) -> int 
             invoice_number=invoice_data.get("Invoice Number", ""),
             invoice_date=invoice_data.get("Invoice Date", ""),
             due_date=invoice_data.get("Due Date", ""),
-            total_amount=(
-                float(invoice_data.get("Total", 0))
-                if invoice_data.get("Total")
-                else None
-            ),
-            taxes=(
-                float(invoice_data.get("Taxes", 0))
-                if invoice_data.get("Taxes")
-                else None
-            ),
+            total_amount=safe_parse_float(invoice_data.get("Total")),
+            taxes=safe_parse_float(invoice_data.get("Taxes")),
             raw_text=raw_text,
             raw_json=raw_json,
         )
@@ -45,39 +38,23 @@ def save_invoice_to_db(invoice_data: dict, raw_text: str, raw_json: str) -> int 
                     invoice_id=new_invoice.id,
                     description=descriptions[i] if i < len(descriptions) else None,
                     quantity=(
-                        float(quantities[i])
-                        if i < len(quantities) and quantities[i]
-                        else None
+                        safe_parse_float(quantities[i]) if i < len(quantities) else None
                     ),
                     unit_price=(
-                        float(unit_prices[i])
-                        if i < len(unit_prices) and unit_prices[i]
+                        safe_parse_float(unit_prices[i])
+                        if i < len(unit_prices)
                         else None
                     ),
-                    amount=(
-                        float(amounts[i]) if i < len(amounts) and amounts[i] else None
-                    ),
+                    amount=safe_parse_float(amounts[i]) if i < len(amounts) else None,
                 )
                 db.add(item)
         else:
             item = InvoiceItem(
                 invoice_id=new_invoice.id,
                 description=invoice_data.get("Description", ""),
-                quantity=(
-                    float(invoice_data.get("Quantity", 0))
-                    if invoice_data.get("Quantity")
-                    else None
-                ),
-                unit_price=(
-                    float(invoice_data.get("Unit Price", 0))
-                    if invoice_data.get("Unit Price")
-                    else None
-                ),
-                amount=(
-                    float(invoice_data.get("Amount", 0))
-                    if invoice_data.get("Amount")
-                    else None
-                ),
+                quantity=safe_parse_float(invoice_data.get("Quantity")),
+                unit_price=safe_parse_float(invoice_data.get("Unit Price")),
+                amount=safe_parse_float(invoice_data.get("Amount")),
             )
             db.add(item)
 

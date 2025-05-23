@@ -1,4 +1,5 @@
 # ocr_utils.py
+import re
 import cv2
 
 
@@ -9,3 +10,11 @@ def preprocess_image(image):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(denoised)
     return enhanced
+
+
+def safe_parse_float(value) -> float | None:
+    if not value or not isinstance(value, str):
+        return None
+    # Extract first valid float-looking number from string
+    match = re.search(r"[-+]?\d*\.\d+|\d+", value.replace(",", "."))
+    return float(match.group()) if match else None
