@@ -26,7 +26,7 @@ def get_invoices():
             )
         return jsonify(result)
     except Exception as e:
-        return jsonify({"error": f"Failed to retrieve invoices: {str(e)}"}), 500
+        return jsonify({"error": f"Faled to retrieve invoices: {str(e)}"}), 500
     finally:
         db.close()
 
