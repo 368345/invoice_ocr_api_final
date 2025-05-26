@@ -1,11 +1,43 @@
 # routes/stats.py
 from flask import Blueprint, jsonify
-from sqlalchemy import func
+from datetime import datetime, timedelta
+from sqlalchemy import func, cast, Date, desc
 from database import get_db, Invoice
 
 stats_bp = Blueprint("stats", __name__)
 
 
+@stats_bp.route("/stats/revenue-per-day", methods=["GET"])
+def get_revenue_per_day():
+    db = next(get_db())
+    try:
+        today = datetime.utcnow()
+        start_of_week = today - timedelta(days=today.weekday())  # Monday
+        
+        # Query: sum total_amount grouped by each day (UTC)
+        result = (
+            db.query(
+                cast(Invoice.created_at, Date).label("day"),
+                func.sum(Invoice.total_amount).label("total")
+            )
+            .filter(Invoice.created_at >= start_of_week)
+            .group_by("day")
+            .order_by("day")
+            .all()
+        )
+
+        # Map dates to weekday names and build a dict for quick access
+        day_totals = {day.strftime("%a"): total for day, total in result}
+        weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+        response = [{"day": day, "total": float(day_totals.get(day, 0.0))} for day in weekdays]
+
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch revenue per day: {str(e)}"}), 500
+    finally:
+        db.close()
+        
 @stats_bp.route("/stats/summary", methods=["GET"])
 def get_invoice_summary():
     db = next(get_db())
@@ -16,40 +48,93 @@ def get_invoice_summary():
         # Total revenue (sum of total_amount)
         total_revenue = db.query(func.sum(Invoice.total_amount)).scalar() or 0.0
 
-        # Find customer with most invoices
-        top_customer = (
-            db.query(
-                Invoice.customer_name, func.count(Invoice.id).label("invoice_count")
-            )
-            .group_by(Invoice.customer_name)
-            .order_by(func.count(Invoice.id).desc())
-            .first()
-        )
-
-        if top_customer and total_invoices > 0:
-            top_customer_name = top_customer[0] or "Unknown"
-            top_customer_invoice_count = top_customer[1]
-            top_customer_percentage = round(
-                (top_customer_invoice_count / total_invoices) * 100, 2
-            )
-        else:
-            top_customer_name = None
-            top_customer_invoice_count = 0
-            top_customer_percentage = 0.0
+        # Number of unique clients
+        total_clients = db.query(func.count(func.distinct(Invoice.customer_name))).scalar() or 0
 
         return jsonify(
             {
-                "total_invoices": total_invoices,
                 "total_revenue": total_revenue,
-                "top_customer": {
-                    "name": top_customer_name,
-                    "invoice_count": top_customer_invoice_count,
-                    "percentage_of_total": top_customer_percentage,
-                },
+                "total_clients": total_clients,
+                "total_invoices": total_invoices,
             }
         )
     except Exception as e:
         return jsonify({"error": f"Failed to fetch invoice summary: {str(e)}"}), 500
+    finally:
+        db.close()
+
+@stats_bp.route("/stats/top-clients", methods=["GET"])
+def get_top_clients():
+    db = next(get_db())
+    try:
+        data = (
+            db.query(
+                Invoice.customer_name.label("name"),
+                func.sum(Invoice.total_amount).label("total_value")
+            )
+            .group_by(Invoice.customer_name)
+            .order_by(desc(func.sum(Invoice.total_amount)))
+            .limit(10)
+            .all()
+        )
+
+        result = [
+            {"name": row.name, "totalValue": row.total_value or 0.0}
+            for row in data if row.name
+        ]
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch top clients: {str(e)}"}), 500
+    finally:
+        db.close()
+
+@stats_bp.route("/stats/recent-invoices", methods=["GET"])
+def get_recent_invoices():
+    db = next(get_db())
+    try:
+        invoices = (
+            db.query(
+                Invoice.id,
+                Invoice.invoice_number,
+                Invoice.customer_name,
+                Invoice.created_at,
+                Invoice.total_amount,
+                Invoice.due_date
+            )
+            .order_by(desc(Invoice.created_at))
+            .limit(10)
+            .all()
+        )
+
+        result = []
+        for inv in invoices:
+            # Determine status
+            if inv.total_amount is not None and inv.total_amount <= 0:
+                status = "paid"
+            elif inv.due_date:
+                try:
+                    due = datetime.fromisoformat(inv.due_date)
+                    if due < datetime.utcnow():
+                        status = "overdue"
+                    else:
+                        status = "pending"
+                except ValueError:
+                    status = "pending"
+            else:
+                status = "pending"
+
+            result.append({
+                "id": inv.id,
+                "invoiceNumber": inv.invoice_number,
+                "clientName": inv.customer_name,
+                "date": inv.created_at.isoformat(),
+                "amount": inv.total_amount,
+                "status": status
+            })
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch recent invoices: {str(e)}"}), 500
     finally:
         db.close()
 

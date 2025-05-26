@@ -1,5 +1,6 @@
 # app.py
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import base64
 import numpy as np
 import cv2
@@ -16,6 +17,7 @@ from utils.ocr_utils import preprocess_image
 matplotlib.use("Agg")
 
 app = Flask(__name__)
+CORS(app)
 
 from routes.invoices import invoices_bp
 from routes.stats import stats_bp
