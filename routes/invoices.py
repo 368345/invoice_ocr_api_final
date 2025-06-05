@@ -114,21 +114,35 @@ def get_clients():
             clean_name = raw_name if raw_name and raw_name != "null" else None
 
             if not clean_name:
-                continue  # Skip completely empty/null clients
+                continue  # Skip empty/null clients
+            
+            clean_address = inv.customer_address.strip() if inv.customer_address else ""
+            if clean_address.lower() == "null":
+                clean_address = ""
 
             if clean_name not in client_map:
                 client_map[clean_name] = {
                     "id": len(client_map) + 1,
                     "name": inv.customer_name or "",
-                    "email": "",
-                    "address": inv.customer_address or "",
-                    "created_at": inv.created_at.isoformat() if inv.created_at else None,
-                    "invoice_count": 1
+                    "email": "",  # No email in your DB model — keep empty or add if available
+                    "address": clean_address,
+                    "createdAt":inv.created_at,
+                    "invoiceCount": 1,
+                    "totalValue": inv.total_amount or 0,
+                    "lastInvoiceDate": inv.created_at
                 }
             else:
-                client_map[clean_name]["invoice_count"] += 1
+                client = client_map[clean_name]
+                client["invoiceCount"] += 1
+                client["totalValue"] += inv.total_amount or 0
 
+                # Update lastInvoiceDate if this invoice is newer
+                if inv.created_at and (not client["lastInvoiceDate"] or inv.created_at >client["lastInvoiceDate"]):
+                    client["lastInvoiceDate"] = inv.created_at
+
+        # Return list of clients with camelCase keys, aggregated totals and dates
         return jsonify(list(client_map.values())), 200
+
     except Exception as e:
         return jsonify({"error": f"Failed to retrieve clients: {str(e)}"}), 500
     finally:

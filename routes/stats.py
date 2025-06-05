@@ -3,6 +3,7 @@ from flask import Blueprint, jsonify
 from datetime import datetime, timedelta
 from sqlalchemy import func, cast, Date, desc
 from database import get_db, Invoice
+from flask import request
 
 stats_bp = Blueprint("stats", __name__)
 
@@ -11,26 +12,34 @@ stats_bp = Blueprint("stats", __name__)
 def get_revenue_per_day():
     db = next(get_db())
     try:
-        today = datetime.utcnow()
-        start_of_week = today - timedelta(days=today.weekday())  # Monday
-        
-        # Query: sum total_amount grouped by each day (UTC)
+        days = int(request.args.get("days", 7))
+
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        start_date = today - timedelta(days=days - 1)
+
         result = (
             db.query(
                 cast(Invoice.created_at, Date).label("day"),
-                func.sum(Invoice.total_amount).label("total")
+                func.coalesce(func.sum(Invoice.total_amount), 0).label("total")  # 👈 Coalesce here
             )
-            .filter(Invoice.created_at >= start_of_week)
+            .filter(Invoice.created_at >= start_date)
             .group_by("day")
             .order_by("day")
             .all()
         )
 
-        # Map dates to weekday names and build a dict for quick access
-        day_totals = {day.strftime("%a"): total for day, total in result}
-        weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        day_totals = {day.strftime("%Y-%m-%d"): total for day, total in result}
 
-        response = [{"day": day, "total": float(day_totals.get(day, 0.0))} for day in weekdays]
+        response = []
+        for i in range(days):
+            date_obj = start_date + timedelta(days=i)
+            date_str = date_obj.strftime("%Y-%m-%d")
+            weekday = date_obj.strftime("%a")
+            response.append({
+                "date": date_str,
+                "day": weekday,
+                "total": float(day_totals.get(date_str, 0.0))
+            })
 
         return jsonify(response)
     except Exception as e:
