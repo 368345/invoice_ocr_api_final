@@ -10,6 +10,7 @@ import re
 import matplotlib
 import ollama
 
+from pdf2image import convert_from_bytes
 from crud import save_invoice_to_db
 from database import create_tables, get_db, Invoice, InvoiceItem
 from utils.ocr_utils import preprocess_image
@@ -41,30 +42,54 @@ def predict():
 
     data = request.get_json()
 
-    if "image" not in data:
-        return jsonify({"error": "No image data provided"}), 400
+    if "file" not in data:
+        return jsonify({"error": "No file data provided"}), 400
+    if "file_type" not in data:
+        return jsonify({"error": "No file_type specified (must be 'image' or 'pdf')"}), 400
 
-    base64_image = data["image"]
+    base64_data = data["file"]
+    file_type = data["file_type"].lower()
 
     try:
         # Strip base64 prefix if present
-        match = re.match(r"^data:image\/[a-zA-Z]+;base64,(.+)", base64_image)
+        prefix_pattern = r"^data:(application\/pdf|image\/[a-zA-Z]+);base64,(.+)"
+        match = re.match(prefix_pattern, base64_data)
         if match:
-            base64_image = match.group(1)
+            base64_data = match.group(2)
 
-        base64_image = base64_image.strip().replace("\n", "")
-        missing_padding = len(base64_image) % 4
+        base64_data = base64_data.strip().replace("\n", "")
+        missing_padding = len(base64_data) % 4
         if missing_padding:
-            base64_image += "=" * (4 - missing_padding)
+            base64_data += "=" * (4 - missing_padding)
 
-        image_data = base64.b64decode(base64_image)
-        image_array = np.frombuffer(image_data, np.uint8)
-        image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        file_data = base64.b64decode(base64_data)
+        
+        if file_type == "pdf":
+            # Specify poppler path (update this to your actual path)
+            poppler_path = r"C:\poppler-24.08.0\Library\bin"
+            
+            # Handle PDF file with explicit poppler path
+            images = convert_from_bytes(
+                file_data,
+                poppler_path=poppler_path
+            )
+            
+            if not images:
+                return jsonify({"error": "Failed to extract images from PDF"}), 400
+            
+            # Process each page (for simplicity, we'll just use the first page here)
+            image = np.array(images[0])
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            
+        elif file_type == "image":
+            # Handle image file (original logic)
+            image_array = np.frombuffer(file_data, np.uint8)
+            image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        else:
+            return jsonify({"error": "Invalid file_type (must be 'image' or 'pdf')"}), 400
+
     except Exception as e:
-        return jsonify({"error": f"Invalid image data: {str(e)}"}), 400
-
-    if image is None:
-        return jsonify({"error": "Failed to decode image data"}), 400
+        return jsonify({"error": f"Invalid file data: {str(e)}"}), 400
 
     try:
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
